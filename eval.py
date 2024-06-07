@@ -48,6 +48,7 @@ def benchmark(so_path, gt_path):
     avg_psnr = np.sum(psnr) / len(psnr)
     filtered = [f'{key}: {value}' for key, value in dict_.items() if value < 40]
     print(filtered)
+    print(len(filtered))
         
     return avg_psnr
 

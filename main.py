@@ -22,10 +22,9 @@ def divide_into_blocks(image, block_size):
     return blocks
 
 def canny(so_img_paths):
-    for img in so_img_paths:
-        image = cv2.imread(img, cv2.IMREAD_GRAYSCALE)
-        edges = cv2.Canny(image, threshold1=20, threshold2=20)
-        cv2.imwrite(f'./frame_canny/{img[-7:-4]}.png', edges)
+    canny_img = [cv2.Canny(cv2.imread(img, cv2.IMREAD_GRAYSCALE), threshold1=20, threshold2=20)
+                for img in so_img_paths]
+    return canny_img
 
 def gen_mat(original_image, edges_image):
     sift = cv2.SIFT_create()
@@ -36,63 +35,68 @@ def gen_mat(original_image, edges_image):
     matches = sorted(matches, key=lambda x: x.distance)
     src_pts = np.float32([keypoints_1[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
     dst_pts = np.float32([keypoints_2[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-    M, mask = cv2.estimateAffine2D(src_pts, dst_pts)
+    M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
     return M
 
-def gen_motion_model(_list):
-    Mat = np.zeros((2,3))
+def gen_motion_model(canny_img, _list):
+    Mat = np.zeros((3,3))
     for (y,x) in _list:
-        original_image_path = f'./frame_canny/{y:03}.png'
-        edges_image_path = f'./frame_canny/{x:03}.png'
-        original_image = cv2.imread(original_image_path, cv2.IMREAD_GRAYSCALE)
-        edges_image = cv2.imread(edges_image_path, cv2.IMREAD_GRAYSCALE)
-        M = gen_mat(original_image, edges_image)
+        M = gen_mat(canny_img[y], canny_img[x])
         Mat += M
     Mat /= len(_list)        
     return Mat 
 
-def gen_img(_list, M):
+def gen_img(_list, M, path):
     for (y,x) in _list:
-        idx = (y+x) // 2
-        original_image = cv2.imread(f'./frames/{y:03}.png', cv2.IMREAD_GRAYSCALE)
-        edges_image = cv2.imread(f'./frames/{x:03}.png', cv2.IMREAD_GRAYSCALE)
-        target_img = cv2.imread(f'./frames/{idx:03}.png', cv2.IMREAD_GRAYSCALE)
+        med = (y+x) // 2
+        original_image = cv2.imread(path[y], cv2.IMREAD_GRAYSCALE)
+        edges_image = cv2.imread(path[x], cv2.IMREAD_GRAYSCALE)
+        target_img = cv2.imread(path[med], cv2.IMREAD_GRAYSCALE)
         height, width = edges_image.shape
-        affine_image = cv2.warpAffine(original_image, M, (width, height))
-        cv2.imwrite(f'./output/{idx:03}.png', affine_image)
+        affine_image = original_image
+        affine_image = cv2.warpPerspective(affine_image, M, (width, height))
+        cv2.imwrite(f'./output/{med:03}.png', affine_image)
         
         compensated_blocks = divide_into_blocks(affine_image, 16)
         original_blocks = divide_into_blocks(target_img, 16)
         selected_blocks = select_blocks(compensated_blocks, original_blocks, 13000)
 
-        output_path = f'./output/s_{idx:03}.txt'
+        output_path = f'./output/s_{med:03}.txt'
         smap_file = open(output_path,'w')
         for s in selected_blocks:
             smap_file.write(str(s)+'\n')
         smap_file.close()
-        
-        
-os.makedirs('frame_canny', exist_ok=True)
+
 os.makedirs('output', exist_ok=True)
 image_name = ['%03d.png' % i for i in range(129)]
 gt_img_paths = [os.path.join('frames', name) for name in image_name]
 
+canny_img = canny(gt_img_paths)
+frame_img = [cv2.imread(img, cv2.IMREAD_GRAYSCALE)
+             for img in gt_img_paths]
+
+mylist0 = [(i, i+1) for i in range(128)]
 mylist1 = [(i, i+32) for i in range(0, 128, 32)]
 mylist2 = [(i, i+16) for i in range(0, 113, 16)]
 mylist3 = [(i, i+8) for i in range(0, 121, 8)]
 mylist4 = [(i, i+4) for i in range(0, 125, 4)]
 mylist5 = [(i, i+2) for i in range(0, 127, 2)]
 
-canny(gt_img_paths)
+# M1 = gen_motion_model(canny_img, mylist1)
+# M2 = gen_motion_model(canny_img, mylist2)
+# M3 = gen_motion_model(canny_img, mylist3)
+# M4 = gen_motion_model(canny_img, mylist4)
+M5 = gen_motion_model(canny_img, mylist5)
 
-M1 = gen_motion_model(mylist1)
-M2 = gen_motion_model(mylist2)
-M3 = gen_motion_model(mylist3)
-M4 = gen_motion_model(mylist4)
-M5 = gen_motion_model(mylist5)
+# gen_img(mylist1, M1, gt_img_paths)
+# gen_img(mylist2, M2, gt_img_paths)
+# gen_img(mylist3, M3, gt_img_paths)
+# gen_img(mylist4, M4, gt_img_paths)
+# gen_img(mylist5, M5, gt_img_paths)
 
-gen_img(mylist1, M1)
-gen_img(mylist2, M2)
-gen_img(mylist3, M3)
-gen_img(mylist4, M4)
-gen_img(mylist5, M5)
+M = np.eye(3)
+gen_img(mylist1, M, gt_img_paths)
+gen_img(mylist2, M, gt_img_paths)
+gen_img(mylist3, M, gt_img_paths)
+gen_img(mylist4, M, gt_img_paths)
+gen_img(mylist5, M5, gt_img_paths)
